@@ -21,7 +21,8 @@ A modular machine learning library built **from scratch with NumPy**, implementi
 - **Pluggable Activations:** `Activation` (identity), `Relu`, `Sigmoid`, and `Softmax` share an abstract base class with `calc` (forward) and `derv` (derivative). The hidden activation is chosen with `hide_func` and the output activation with `acts_out`.
 - **Bias as an Extra Node:** Every layer has a constant bias node that receives no input and only sends its own weights to the next layer, so the bias is trained exactly like any other weight.
 - **Pluggable Losses:** `MSE` (regression) and `Bin_Cls` (binary cross-entropy, binary classification) share an abstract base class and turn the prediction and the target into the output-layer error signal. Choose one with `loss_fn`.
-- **Built-in Scaling:** Inputs are standardized inside `fit`, and `predict` applies the same statistics. For regression the target is standardized too and predictions are converted back to the original scale; for classification the 0/1 labels are kept as they are.
+- **Built-in Scaling:** Each input feature is standardized separately inside `fit` (the statistics are stored and reused by `predict`), and only then is the bias row of ones added, so the bias input stays exactly 1. For regression the target is standardized too and predictions are converted back to the original scale; for classification the 0/1 labels are kept as they are.
+- **Xavier Initialization:** Weights are initialized with `randn · sqrt(1 / n)`, where `n` is the number of nodes of the layer (including its bias node).
 
 ---
 
@@ -86,7 +87,7 @@ Because the loop only talks to the abstract optimizer and regularizer interfaces
 
 ### Neural network
 
-**Data layout.** `fit` and `predict` receive `x` as `(samples, features)` like the other models. Internally the data is transposed so that **rows are features and columns are samples**, and a row of ones is added on top as the bias node.
+**Data layout.** `fit` and `predict` receive `x` as `(samples, features)` like the other models. Internally the data is transposed so that **rows are features and columns are samples**. Every feature is standardized with the training mean and standard deviation, and then a row of ones is added on top as the bias node.
 
 **Shapes.** For a layer with `m` nodes feeding a layer with `h` nodes, the weight matrix is `W: (m+1) × h` (the `+1` is the bias node, whose weights form the first row of `W`):
 
@@ -216,7 +217,7 @@ For several features pass `x` as a `(samples, features)` array, for example `Neu
 | `niter`     | `1e4`   | Number of full-batch gradient descent iterations                            |
 | `lr`        | `0.1`   | Learning rate                                                               |
 | `hide_func` | `Relu`  | Hidden activation class (`Relu`, `Sigmoid`), or `None` for no activation    |
-| `loss_fn`   | `MSE`   | Loss: `MSE` (regression) or `Bin_Cls` (binary cross-entropy, needs `acts_out=Sigmoid`) |
+| `loss_fn`   | `None`  | Loss: `None` = `MSE` (regression), or `Bin_Cls` (binary cross-entropy, needs `acts_out=Sigmoid`) |
 
 ---
 
@@ -243,7 +244,7 @@ python main.py
 
 | Function     | Model            | MSE    | R²     |
 | ------------ | ---------------- | ------ | ------ |
-| `y = x²`     | ReLU network     | 0.0042 | 0.999  |
+| `y = x²`     | ReLU network     | 0.0052 | 0.999  |
 | `y = x²`     | No activation    | 6.7539 | -0.002 |
 | `y = x²`     | Straight line    | 6.7539 | -0.002 |
 | `y = sin(x)` | ReLU network     | 0.0002 | 1.000  |
@@ -252,11 +253,96 @@ python main.py
 
 The identical numbers for "No activation" and "Straight line" show that stacking linear layers without a non-linearity adds no expressive power, which is exactly why activation functions matter.
 
-**Test 3: binary classification with a step boundary** (`y = 1 if x ≥ 50 else 0`). The network (`Sigmoid` output + binary cross-entropy) is trained on 10,000 points in `[-1000, 1000]` and tested on 11 unseen points, including the extreme values `±10¹⁰` to check that the sigmoid saturates correctly. Result: **10 of 11 correct (90.9%)**. The only miss is `x = 48`, two units from the boundary (predicted probability 0.56): after 2,000 iterations the network has learned a soft boundary around `x = 50`. Training longer (`lr=0.5`, `niter=20000`) sharpens it and classifies all 11 points correctly.
+**Test 3: binary classification with a step boundary** (`y = 1 if x ≥ 50 else 0`). The network (`Sigmoid` output + binary cross-entropy) is trained on 10,000 points in `[-1000, 1000]` and tested on 11 unseen points, including the extreme values `±10¹⁰` to check that the sigmoid saturates correctly. Result: **11 of 11 correct (100%)**. The learned boundary sits almost exactly at `x = 50`: the probability is 0.489 at `x = 48` (class 0) and 0.502 at `x = 50` (class 1).
 
-**Test 4: binary classification with a two-sided boundary** (`y = 1 if x² ≥ 900`, i.e. `x ≤ -30` or `x ≥ 30`). A single linear boundary cannot represent this, so it needs the hidden layer. Result on 9 unseen points: **9 of 9 correct (100%)**, including points close to the boundaries (`x = 28` gets probability 0.48).
+**Test 4: binary classification with a two-sided boundary** (`y = 1 if x² ≥ 900`, i.e. `x ≤ -30` or `x ≥ 30`). A single linear boundary cannot represent this, so it needs the hidden layer. Result on 9 unseen points: **9 of 9 correct (100%)**, including points close to the boundaries (`x = 28` gets probability 0.38, `x = -25` gets 0.08).
 
-> **Note on stability.** With the default settings of Test 4 (`lr=0.05`, `niter=3000`) the result depends on the random initialization: across 10 seeds the mean accuracy is 96.7%, and one seed gets stuck at 66.7%. With `lr=0.2` and `niter=10000` all 10 seeds reach 100%.
+> **Stability.** Both classification experiments were repeated with different random seeds: Test 4 reached 100% on 10 out of 10 seeds and Test 3 reached 100% on 5 out of 5 seeds.
+
+<details>
+<summary>Full output of <code>python main.py</code></summary>
+
+```text
+=== Test 1: y = 5x + 10 ===
+       x       true   neural net   least squares
+      60     310.00       310.00          310.00
+     153     775.00       775.00          775.00
+       3      25.00        25.00           25.00
+     -15     -65.00       -65.00          -65.00
+max |error|  neural net: 5.68e-14 | least squares: 1.14e-13
+
+=== Test 2: y = x^2 ===
+      x      true   ReLU network  no activation  straight line
+  -2.90     8.410          8.444          3.030          3.030
+  -2.07     4.291          4.392          3.030          3.030
+  -1.24     1.545          1.642          3.030          3.030
+  -0.41     0.172          0.209          3.030          3.030
+   0.41     0.172          0.215          3.030          3.030
+   1.24     1.545          1.618          3.030          3.030
+   2.07     4.291          4.352          3.030          3.030
+   2.90     8.410          8.455          3.030          3.030
+           model        MSE       R2
+    ReLU network     0.0052    0.999
+   no activation     6.7539   -0.002
+   straight line     6.7539   -0.002
+
+=== Test 2: y = sin(x) ===
+      x      true   ReLU network  no activation  straight line
+  -2.90    -0.239         -0.241         -0.989         -0.989
+  -2.07    -0.877         -0.881         -0.707         -0.707
+  -1.24    -0.947         -0.930         -0.424         -0.424
+  -0.41    -0.403         -0.396         -0.141         -0.141
+   0.41     0.403          0.413          0.141          0.141
+   1.24     0.947          0.959          0.424          0.424
+   2.07     0.877          0.894          0.707          0.707
+   2.90     0.239          0.251          0.989          0.989
+           model        MSE       R2
+    ReLU network     0.0002    1.000
+   no activation     0.1554    0.708
+   straight line     0.1554    0.708
+
+=== Test 3: Binary Classification (y = 1 if x >= 50 else 0) ===
+       x     true y   raw prob (p)  predicted class     status
+     1.0          0         0.2272                0    CORRECT
+     3.2          0         0.2371                0    CORRECT
+    48.0          0         0.4892                0    CORRECT
+    50.0          1         0.5018                1    CORRECT
+    52.0          1         0.5143                1    CORRECT
+    71.0          1         0.6306                1    CORRECT
+    90.0          1         0.7335                1    CORRECT
+   150.0          1         0.9255                1    CORRECT
+  -150.0          0         0.0066                0    CORRECT
+10000000000.0          1         1.0000                1    CORRECT
+-10000000000.0          0         0.0000                0    CORRECT
+Classification Accuracy on Test Set: 100.0%
+
+=== Test 4: Binary Classification (y = 1 if x^2 >= 900 else 0) ===
+       x     true y   raw prob (p)  predicted class     status
+   -70.0          1         1.0000                1    CORRECT
+   -45.0          1         0.9998                1    CORRECT
+   -25.0          0         0.0802                0    CORRECT
+   -10.0          0         0.0000                0    CORRECT
+     0.0          0         0.0000                0    CORRECT
+    10.0          0         0.0009                0    CORRECT
+    28.0          0         0.3780                0    CORRECT
+    45.0          1         0.9957                1    CORRECT
+    70.0          1         0.9996                1    CORRECT
+Classification Accuracy on Test Set: 100.0%
+```
+
+Tiny numerical differences (for example the last digits of the error in Test 1) can appear on different machines.
+
+</details>
+
+## 🧪 Design Notes
+
+Things that were found while testing the network and are worth knowing:
+
+- **Standardize the features before adding the bias row.** Standardizing the whole matrix together with the row of ones turns the bias input into `(1 − mean) / std`, which is almost zero when the features are large (about `0.001` in Test 3), so the bias barely trains. Scaling each feature first keeps the bias input equal to 1: this alone moved Test 3 from 10/11 to 11/11 and made Test 4 reliable across seeds.
+- **Labels must not be standardized for classification.** Binary cross-entropy with a sigmoid output expects targets in `{0, 1}`; standardized labels cannot be reached by a sigmoid and push the weights to extreme values.
+- **The weight initialization matters.** A small constant scale (`0.1`) keeps sigmoid hidden layers stuck near zero, and He initialization (`sqrt(2 / n)`) made the purely linear network diverge for 15 of 20 seeds at `lr=0.1`. Xavier initialization (`sqrt(1 / n)`) was stable for identity, ReLU, and sigmoid hidden layers.
+- **`Bin_Cls` assumes a `Sigmoid` output.** The shortcut `δ = ŷ − y` is only correct for that combination.
+- **The backward pass was verified with numerical gradients** during development (relative error around `1e-9`).
 
 ---
 
@@ -265,6 +351,7 @@ The identical numbers for "No activation" and "Straight line" show that stacking
 - Neural network: support multi-class classification (Softmax with categorical cross-entropy) and multiple outputs. Currently the network has a single output (regression or binary classification).
 - Neural network: add a `calc` method to the losses to report the loss value (a `loss_history`), plus `predict_classes` and an accuracy score.
 - Neural network: reuse the `Optimizer` / `Adam` strategies and add mini-batch training.
+- Make `Bin_Cls` raise an error when the output layer is not a `Sigmoid` (it is silently wrong today).
 - Add gradient-check unit tests for the neural network, and validate the linear models against scikit-learn (`LinearRegression`, `Ridge`, `Lasso`).
 - Add more optimizers (SGD with momentum, RMSProp) and ElasticNet regularization.
 - Add early stopping and learning-rate scheduling.
@@ -277,8 +364,8 @@ The identical numbers for "No activation" and "Straight line" show that stacking
 
 **Mahamed Emad**
 
-- GitHub: [Mahamed Emad](https://github.com/Mahamed-Emad)
-- LinkedIn: [Mahamed Emad](https://www.linkedin.com/in/mahamed-emad/)
+- GitHub: [Mahamed-Emad](https://github.com/Mahamed-Emad)
+- LinkedIn: [mahamed-emad](https://www.linkedin.com/in/mahamed-emad/)
 
 ---
 
