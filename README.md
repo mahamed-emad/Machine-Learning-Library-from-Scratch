@@ -1,6 +1,6 @@
 # 🧠 ML Library from Scratch
 
-A modular machine learning library built **from scratch with NumPy**, implementing Linear, Ridge, Lasso, and Polynomial Regression with decoupled **Optimizer** and **Regularizer** strategies, plus a fully hand-written **Neural Network (MLP)** with forward and backward propagation. Built by **[Mahamed Emad](https://www.linkedin.com/in/mahamed-emad/)** as a hands-on way to understand the math and the software design behind machine learning, without relying on scikit-learn.
+A modular machine learning library built **from scratch with NumPy**, implementing Linear, Ridge, Lasso, and Polynomial Regression with decoupled **Optimizer** and **Regularizer** strategies, plus a fully hand-written **Neural Network (MLP)** with forward and backward propagation, for both regression and binary classification. Built by **[Mahamed Emad](https://www.linkedin.com/in/mahamed-emad/)** as a hands-on way to understand the math and the software design behind machine learning, without relying on scikit-learn.
 
 ---
 
@@ -20,7 +20,8 @@ A modular machine learning library built **from scratch with NumPy**, implementi
 - **Layer Objects:** `Input_Layer`, `Hiden_Layer`, and `Out_Layer` are linked together by a `Propagation` class; each layer implements its own `forward` and `backward` through an abstract `Layer` base class.
 - **Pluggable Activations:** `Activation` (identity), `Relu`, `Sigmoid`, and `Softmax` share an abstract base class with `calc` (forward) and `derv` (derivative). The hidden activation is chosen with `hide_func` and the output activation with `acts_out`.
 - **Bias as an Extra Node:** Every layer has a constant bias node that receives no input and only sends its own weights to the next layer, so the bias is trained exactly like any other weight.
-- **Built-in Scaling:** Inputs and targets are standardized inside `fit`, and `predict` applies the same statistics and converts the output back to the original scale.
+- **Pluggable Losses:** `MSE` (regression) and `Bin_Cls` (binary cross-entropy, binary classification) share an abstract base class and turn the prediction and the target into the output-layer error signal. Choose one with `loss_fn`.
+- **Built-in Scaling:** Inputs are standardized inside `fit`, and `predict` applies the same statistics. For regression the target is standardized too and predictions are converted back to the original scale; for classification the 0/1 labels are kept as they are.
 
 ---
 
@@ -50,14 +51,18 @@ Machine-Learning-Library-from-Scratch/
 │   │   ├── layer.py               # Abstract layer interface
 │   │   ├── input_layer.py         # Input layer (features + bias node)
 │   │   ├── hiden_layer.py         # Hidden layer with configurable activation
-│   │   └── output_layer.py        # Output layer and error signal
-│   └── activations/
-│       ├── _base.py               # Abstract activation interface (calc / derv)
-│       ├── activation.py          # Identity
-│       ├── relu.py                # ReLU
-│       ├── sigmoid.py             # Sigmoid
-│       └── softmax.py             # Softmax
-├── main.py                        # Neural network experiments and comparison
+│   │   └── output_layer.py        # Output layer: activation + loss error signal
+│   ├── activations/
+│   │   ├── _base.py               # Abstract activation interface (calc / derv)
+│   │   ├── activation.py          # Identity
+│   │   ├── relu.py                # ReLU
+│   │   ├── sigmoid.py             # Sigmoid
+│   │   └── softmax.py             # Softmax
+│   └── losses/
+│       ├── _base.py               # Abstract loss interface
+│       ├── mse.py                 # Mean squared error (regression)
+│       └── bin_cls.py             # Binary cross-entropy (binary classification)
+├── main.py                        # Neural network experiments (regression and classification)
 └── README.md
 ```
 
@@ -96,10 +101,19 @@ The result has only the `h` real nodes of the next layer, so **the bias node nev
 2. `A = f(Z)` (hidden activation)
 
 **Backward pass:**
-1. Output error: `δ = (ŷ − y) ⊙ f'(z)`
+1. Output error `δ`, computed by the loss strategy (see below)
 2. Gradient of the weights: `dW = A_prev · δᵀ`
 3. Error sent to the previous layer: `δ_prev = (W · δ) ⊙ f'(z_prev)`, **with the bias row dropped**, because no error can flow into a node that has no input
 4. Update: `W ← W − lr · dW / n`
+
+**Loss strategies.** The loss object (`loss_fn`) produces the output error `δ` that starts the backward pass:
+
+| Loss                       | Task                  | Output activation | `δ`                 |
+| -------------------------- | --------------------- | ----------------- | ------------------- |
+| `MSE`                      | regression            | identity (or any) | `(ŷ − y) ⊙ f'(z)`   |
+| `Bin_Cls` (cross-entropy)  | binary classification | `Sigmoid`         | `ŷ − y`             |
+
+Binary cross-entropy is `L = −[y·log ŷ + (1 − y)·log(1 − ŷ)]`, so `∂L/∂ŷ = (ŷ − y) / (ŷ(1 − ŷ))`. The sigmoid derivative is `ŷ(1 − ŷ)`, and the product simplifies to `ŷ − y`. Unlike MSE combined with a sigmoid, this gradient does not shrink when the sigmoid saturates, so confident wrong predictions are still corrected quickly. The shortcut is only valid with a `Sigmoid` output layer and labels in `{0, 1}`.
 
 ---
 
@@ -161,6 +175,25 @@ model.fit(x, y)
 print(model.predict(np.array([-2.0, 0.5, 2.5])))   # ≈ [4.08, 0.21, 6.33]  (true: 4, 0.25, 6.25)
 ```
 
+### Quick Example: Binary Classification
+
+```python
+import numpy as np
+from neural_network import Neural_Network, Relu, Sigmoid, Bin_Cls
+
+np.random.seed(42)
+
+x = np.arange(-50, 50)
+y = np.where(x ** 2 >= 900, 1.0, 0.0)          # 1 if |x| >= 30 (a two-sided boundary)
+
+model = Neural_Network(dimens=[1, 8, 1], niter=3000, lr=0.05,
+                       hide_func=Relu, acts_out=Sigmoid, loss_fn=Bin_Cls)
+model.fit(x, y)
+
+probs = model.predict(np.array([-45.0, 0.0, 70.0]))   # probabilities in (0, 1)
+print(probs >= 0.5)                                   # [ True False  True]
+```
+
 For several features pass `x` as a `(samples, features)` array, for example `Neural_Network(dimens=[0, 16, 8, 1])`. The first value of `dimens` is only a placeholder: it is replaced by the real input size.
 
 ### Hyperparameters
@@ -179,10 +212,11 @@ For several features pass `x` as a `(samples, features)` array, for example `Neu
 | Parameter   | Default | Description                                                                 |
 | ----------- | ------- | --------------------------------------------------------------------------- |
 | `dimens`    | `[]`    | Layer sizes `[input, hidden..., output]` (the first value is a placeholder) |
-| `acts_out`  | `None`  | Output activation: `"relu"`, `"sigmoid"`, `"softmax"`, or `None` (identity) |
+| `acts_out`  | `None`  | Output activation, e.g. `Sigmoid` (`None` = identity)                       |
 | `niter`     | `1e4`   | Number of full-batch gradient descent iterations                            |
 | `lr`        | `0.1`   | Learning rate                                                               |
 | `hide_func` | `Relu`  | Hidden activation class (`Relu`, `Sigmoid`), or `None` for no activation    |
+| `loss_fn`   | `MSE`   | Loss: `MSE` (regression) or `Bin_Cls` (binary cross-entropy, needs `acts_out=Sigmoid`) |
 
 ---
 
@@ -194,7 +228,7 @@ Run the experiments with:
 python main.py
 ```
 
-`main.py` trains the neural network on known functions and compares it with a reference solution (the closed-form least-squares line from `numpy.polyfit`).
+`main.py` trains the neural network on known functions and boundaries. For regression it compares the network with a reference solution (the closed-form least-squares line from `numpy.polyfit`). All experiments fix the random seed (42).
 
 **Test 1: linear function `y = 5x + 10`.** A network without a hidden activation is a linear model, so it should find the exact line, including at points outside the training range (153 and −15):
 
@@ -218,11 +252,18 @@ python main.py
 
 The identical numbers for "No activation" and "Straight line" show that stacking linear layers without a non-linearity adds no expressive power, which is exactly why activation functions matter.
 
+**Test 3: binary classification with a step boundary** (`y = 1 if x ≥ 50 else 0`). The network (`Sigmoid` output + binary cross-entropy) is trained on 10,000 points in `[-1000, 1000]` and tested on 11 unseen points, including the extreme values `±10¹⁰` to check that the sigmoid saturates correctly. Result: **10 of 11 correct (90.9%)**. The only miss is `x = 48`, two units from the boundary (predicted probability 0.56): after 2,000 iterations the network has learned a soft boundary around `x = 50`. Training longer (`lr=0.5`, `niter=20000`) sharpens it and classifies all 11 points correctly.
+
+**Test 4: binary classification with a two-sided boundary** (`y = 1 if x² ≥ 900`, i.e. `x ≤ -30` or `x ≥ 30`). A single linear boundary cannot represent this, so it needs the hidden layer. Result on 9 unseen points: **9 of 9 correct (100%)**, including points close to the boundaries (`x = 28` gets probability 0.48).
+
+> **Note on stability.** With the default settings of Test 4 (`lr=0.05`, `niter=3000`) the result depends on the random initialization: across 10 seeds the mean accuracy is 96.7%, and one seed gets stuck at 66.7%. With `lr=0.2` and `niter=10000` all 10 seeds reach 100%.
+
 ---
 
 ## 🔭 Roadmap
 
-- Neural network: support multiple outputs and classification (Softmax with cross-entropy). Currently the network supports single-output regression, because the targets are standardized.
+- Neural network: support multi-class classification (Softmax with categorical cross-entropy) and multiple outputs. Currently the network has a single output (regression or binary classification).
+- Neural network: add a `calc` method to the losses to report the loss value (a `loss_history`), plus `predict_classes` and an accuracy score.
 - Neural network: reuse the `Optimizer` / `Adam` strategies and add mini-batch training.
 - Add gradient-check unit tests for the neural network, and validate the linear models against scikit-learn (`LinearRegression`, `Ridge`, `Lasso`).
 - Add more optimizers (SGD with momentum, RMSProp) and ElasticNet regularization.
@@ -236,8 +277,8 @@ The identical numbers for "No activation" and "Straight line" show that stacking
 
 **Mahamed Emad**
 
-- GitHub: [Mahamed-Emad](https://github.com/Mahamed-Emad)
-- LinkedIn: [mahamed-emad](https://www.linkedin.com/in/mahamed-emad/)
+- GitHub: [Mahamed Emad](https://github.com/Mahamed-Emad)
+- LinkedIn: [Mahamed Emad](https://www.linkedin.com/in/mahamed-emad/)
 
 ---
 
