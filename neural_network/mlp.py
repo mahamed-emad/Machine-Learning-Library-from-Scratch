@@ -2,7 +2,7 @@ import numpy as np
 from .layers import *
 
 class Propagation:
-    def __init__(self, x, y, dimens, acts_out, lr, hide_func):
+    def __init__(self, x, y, dimens, acts_out, lr, hide_func, loss_fn):
         self.lr = lr
         self.dimens = [i + 1 for i in dimens]
         self.dimens[-1] -= 1
@@ -14,7 +14,7 @@ class Propagation:
             prev.next = now
             now.prev = prev
             prev = now
-        self.tail = now = Out_Layer(y, self.lr, self.num_sample, self.dimens[-2], acts_out)
+        self.tail = now = Out_Layer(y, self.lr, self.num_sample, self.dimens[-2], acts_out, loss_fn)
         prev.next = now
         now.prev = prev
 

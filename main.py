@@ -1,5 +1,5 @@
 import numpy as np
-from neural_network import Neural_Network, Relu
+from neural_network import *
 
 
 def mse(y, p): return np.mean((y - p) ** 2)
@@ -70,3 +70,89 @@ for name, f in functions.items():
     print(f"{'model':>16} {'MSE':>10} {'R2':>8}")
     for k, p in preds.items():
         print(f"{k:>16} {mse(true_y, p):>10.4f} {r2(true_y, p):>8.3f}")
+        
+# ------------------------------------------------------------------
+# Test 3: Binary Classification (Step / Linear Boundary)
+# Test our new Binary Cross-Entropy Loss & Sigmoid output layer.
+# ------------------------------------------------------------------
+
+def classification_func(x):
+    # Simple step boundary function: 1 if x >= 50, else 0
+    return np.where(x >= 50, 1.0, 0.0)
+
+# Training data (x values ranging from -1000 to 1000)
+X_class = np.linspace(-1000, 1000, 10000)
+Y_class = classification_func(X_class)
+
+np.random.seed(42)
+
+# Initialize neural network supporting binary classification
+# Note: Ensure your Neural_Network class accepts out_func and loss_fn parameters
+class_net = Neural_Network(
+    dimens=[1, 8, 1], 
+    niter=2000, 
+    lr=0.05, 
+    hide_func=Relu,
+    acts_out=Sigmoid,             # Sigmoid activation for binary output
+    loss_fn=Bin_Cls # Binary Cross-Entropy loss function
+)
+class_net.fit(X_class, Y_class)
+
+# Unseen test points for evaluation
+test_x_class = np.array([1.0, 3.2, 48, 50, 52, 71, 90, 150, -150, 1e10, -1e10], dtype=float)
+true_y_class = classification_func(test_x_class)
+
+raw_preds = class_net.predict(test_x_class)
+predicted_classes = (raw_preds >= 0.5).astype(float) # Apply decision threshold = 0.5
+
+print("\n=== Test 3: Binary Classification (y = 1 if x >= 50 else 0) ===")
+print(f"{'x':>8} {'true y':>10} {'raw prob (p)':>14} {'predicted class':>16} {'status':>10}")
+for x_i, t, p, pred_c in zip(test_x_class, true_y_class, raw_preds.flatten(), predicted_classes.flatten()):
+    status = "CORRECT" if t == pred_c else "WRONG"
+    print(f"{x_i:>8.1f} {t:>10.0f} {p:>14.4f} {pred_c:>16.0f} {status:>10}")
+
+accuracy = np.mean(predicted_classes.flatten() == true_y_class) * 100
+print(f"Classification Accuracy on Test Set: {accuracy:.1f}%")
+
+
+# ------------------------------------------------------------------
+# Test 4: Binary Classification (Quadratic / Non-Linear Boundary)
+# Test our network's ability to learn two-sided symmetric boundaries (x^2 >= 900).
+# ------------------------------------------------------------------
+
+def quadratic_classification_func(x):
+    # Quadratic boundary function: 1 if x^2 >= 900 (i.e., x <= -30 or x >= 30), else 0
+    return np.where(x**2 >= 900, 1.0, 0.0)
+
+X_class_quad = np.arange(-50, 50)
+Y_class_quad = quadratic_classification_func(X_class_quad)
+
+np.random.seed(42)
+
+# Initialize neural network supporting binary classification
+# Note: Using a hidden layer (8 neurons) to effectively learn the two symmetric decision boundaries (-30 and +30)
+class_net_quad = Neural_Network(
+    dimens=[1, 8, 1], 
+    niter=3000, 
+    lr=0.05, 
+    hide_func=Relu,
+    acts_out=Sigmoid,              # Sigmoid activation for binary output
+    loss_fn=Bin_Cls                # Binary Cross-Entropy loss function
+)
+class_net_quad.fit(X_class_quad, Y_class_quad)
+
+# Unseen test points for evaluation
+test_x_quad = np.array([-70.0, -45.0, -25.0, -10.0, 0.0, 10.0, 28.0, 45.0, 70.0], dtype=float)
+true_y_quad = quadratic_classification_func(test_x_quad)
+
+raw_preds_quad = class_net_quad.predict(test_x_quad)
+predicted_classes_quad = (raw_preds_quad >= 0.5).astype(float) # Apply decision threshold = 0.5
+
+print("\n=== Test 4: Binary Classification (y = 1 if x^2 >= 900 else 0) ===")
+print(f"{'x':>8} {'true y':>10} {'raw prob (p)':>14} {'predicted class':>16} {'status':>10}")
+for x_i, t, p, pred_c in zip(test_x_quad, true_y_quad, raw_preds_quad.flatten(), predicted_classes_quad.flatten()):
+    status = "CORRECT" if t == pred_c else "WRONG"
+    print(f"{x_i:>8.1f} {t:>10.0f} {p:>14.4f} {pred_c:>16.0f} {status:>10}")
+
+accuracy_quad = np.mean(predicted_classes_quad.flatten() == true_y_quad) * 100
+print(f"Classification Accuracy on Test Set: {accuracy_quad:.1f}%")

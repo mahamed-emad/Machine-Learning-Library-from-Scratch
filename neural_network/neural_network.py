@@ -1,15 +1,16 @@
 from .mlp import *
 import numpy as np
 from .activations import *
+from .losses import *
 
 class Neural_Network:
-    def __init__(self, dimens=[], acts_out=None, niter=int(1e4), lr=0.1, hide_func=Relu):
+    def __init__(self, dimens=[], acts_out=None, niter=int(1e4), lr=0.1, hide_func=Relu, loss_fn=None):
         self.lr = lr
         self.niter = niter
-        self.dimens = dimens
-        dic = {"relu": Relu, "sigmoid": Sigmoid, "softmax": Softmax}
-        self.acts_out = dic[acts_out]() if acts_out in dic else Activation()
+        self.dimens = dimens        
+        self.acts_out = acts_out() if acts_out else Activation()
         self.hide_func = hide_func if hide_func else Activation
+        self.loss_fn, self.clas = (loss_fn(), True) if loss_fn else (MSE(), False)
     
     def colm_x(self, x):
         x = np.array(x, dtype=float).T
@@ -25,10 +26,11 @@ class Neural_Network:
         x = (x - self.x_mean) / (self.x_std)
         self.y_mean, self.y_std = y.mean(), y.std()
         self.y_std = 1e-9 if not self.y_std else self.y_std
+        if self.clas: self.y_mean, self.y_std = 0.0, 1.0
         y = (y - self.y_mean) / self.y_std
 
         self.dimens[0] = x.shape[0]
-        self.propagation = Propagation(x, y, self.dimens, self.acts_out, self.lr, self.hide_func)
+        self.propagation = Propagation(x, y, self.dimens, self.acts_out, self.lr, self.hide_func, self.loss_fn)
         for _ in range(int(self.niter)):
             self.propagation.forward(x)
             self.propagation.backward()
