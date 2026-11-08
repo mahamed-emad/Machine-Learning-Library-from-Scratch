@@ -4,7 +4,7 @@ A modular machine learning library built **from scratch with NumPy**, implementi
 
 ---
 
-## 📌 Features
+## 📌 Features 
 
 ### Classical models
 - **From-Scratch Implementations:** Linear Regression and Polynomial Regression trained with vectorized mini-batch gradient descent, using only NumPy.
